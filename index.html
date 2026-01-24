@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID // FILE STORAGE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesque:wght@300;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Space Grotesque', sans-serif; background-color: #000; color: #fff; }
+        .funky-font { font-family: 'Bungee', cursive; }
+        .brutalist-border { border: 4px solid #fff; box-shadow: 6px 6px 0px #fff; }
+        .btn-hover:hover { background-color: #fff; color: #000; transform: translate(-2px, -2px); box-shadow: 8px 8px 0px #666; }
+        input { background: transparent; border: 2px solid #fff; padding: 10px; color: white; outline: none; }
+        .file-card { border-bottom: 2px solid #333; transition: all 0.3s; }
+        .file-card:hover { border-color: #fff; background: #111; }
+    </style>
+</head>
+<body class="p-8 flex flex-col items-center min-h-screen">
+
+    <h1 class="funky-font text-6xl mb-12 tracking-tighter uppercase italic">The Void_</h1>
+
+    <div id="auth-section" class="w-full max-w-md brutalist-border p-8 bg-black">
+        <h2 id="auth-title" class="funky-font text-2xl mb-6 text-center">LOGIN_</h2>
+        <div class="flex flex-col gap-4">
+            <input type="text" id="username" placeholder="USERNAME">
+            <input type="email" id="email" class="hidden" placeholder="EMAIL">
+            <input type="password" id="password" placeholder="PASSWORD">
+            <button onclick="handleAuth()" class="brutalist-border p-3 funky-font btn-hover transition-all">EXECUTE</button>
+            <p onclick="toggleAuthMode()" id="auth-toggle" class="text-xs text-center cursor-pointer hover:underline opacity-60 mt-2">NEED AN ACCOUNT? REGISTER_</p>
+        </div>
+    </div>
+
+    <div id="dashboard" class="hidden w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-8">
+        
+        <div class="md:col-span-1">
+            <div class="brutalist-border p-6 bg-black sticky top-8">
+                <h2 class="funky-font text-xl mb-6">TRANSMIT_</h2>
+                <div class="flex flex-col gap-4">
+                    <input type="file" id="fileInput" class="text-xs">
+                    <button onclick="uploadFile()" class="brutalist-border p-2 funky-font btn-hover text-sm">UPLOAD.DATA</button>
+                    <button onclick="logout()" class="text-[10px] opacity-50 hover:opacity-100 uppercase mt-4">TERMINATE_SESSION</button>
+                    <p id="status" class="mt-2 text-xs font-mono text-yellow-500"></p>
+                </div>
+            </div>
+        </div>
+
+        <div class="md:col-span-2 brutalist-border p-6 bg-black">
+            <h2 class="funky-font text-xl mb-6 flex justify-between">
+                VAULT_CONTENT 
+                <span class="text-sm opacity-50 cursor-pointer hover:opacity-100" onclick="loadFiles()">REFRESH</span>
+            </h2>
+            <div id="file-list" class="flex flex-col gap-2">
+                <p class="text-sm opacity-40 italic">No data detected in the void...</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000";
+        let isLogin = true;
+
+        function toggleAuthMode() {
+            isLogin = !isLogin;
+            document.getElementById('auth-title').innerText = isLogin ? "LOGIN_" : "REGISTER_";
+            document.getElementById('auth-toggle').innerText = isLogin ? "NEED AN ACCOUNT? REGISTER_" : "HAVE AN ACCOUNT? LOGIN_";
+            document.getElementById('email').classList.toggle('hidden');
+        }
+
+        async function handleAuth() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const email = document.getElementById('email').value;
+
+            const endpoint = isLogin ? "/auth/login" : "/auth/register";
+            let body, headers;
+
+            if (isLogin) {
+                body = new URLSearchParams();
+                body.append('username', username);
+                body.append('password', password);
+                headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+            } else {
+                body = JSON.stringify({ username, email, password });
+                headers = { 'Content-Type': 'application/json' };
+            }
+
+            const res = await fetch(API_URL + endpoint, { method: 'POST', headers, body });
+            const data = await res.json();
+
+            if (res.ok) {
+                if (isLogin) {
+                    localStorage.setItem('token', data.access_token);
+                    showDashboard();
+                } else {
+                    alert("REGISTERED. PROCEED TO LOGIN.");
+                    toggleAuthMode();
+                }
+            } else { alert(data.detail); }
+        }
+
+        async function loadFiles() {
+            const list = document.getElementById('file-list');
+            const res = await fetch(API_URL + "/files/", {
+                headers: { "Authorization": "Bearer " + localStorage.getItem('token') }
+            });
+            const files = await res.json();
+
+            if (res.ok) {
+                if (files.length === 0) {
+                    list.innerHTML = `<p class="text-sm opacity-40 italic">Void is empty.</p>`;
+                    return;
+                }
+                list.innerHTML = files.map(f => `
+                    <div class="file-card p-4 flex justify-between items-center">
+                        <div>
+                            <p class="font-bold uppercase tracking-wider">${f.original_filename}</p>
+                            <p class="text-[10px] opacity-50">${(f.file_size / 1024).toFixed(2)} KB // ${f.content_type}</p>
+                        </div>
+                        <div class="flex gap-4">
+                            <a href="${API_URL}/files/download/${f.id}" target="_blank" class="text-xs border border-white px-2 hover:bg-white hover:text-black transition">DOWNLOAD</a>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const status = document.getElementById('status');
+            if (!fileInput.files[0]) return;
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            status.innerText = "TRANSMITTING...";
+            const res = await fetch(API_URL + "/files/upload", {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + localStorage.getItem('token') },
+                body: formData
+            });
+
+            if (res.ok) {
+                status.innerText = "SUCCESS.";
+                fileInput.value = "";
+                loadFiles(); // Refresh the list
+            } else { status.innerText = "ERROR."; }
+        }
+
+        function showDashboard() {
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            loadFiles();
+        }
+
+        function logout() { localStorage.removeItem('token'); location.reload(); }
+
+        if (localStorage.getItem('token')) showDashboard();
+    </script>
+</body>
+</html>
